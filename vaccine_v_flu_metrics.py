@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -12,12 +13,27 @@ def load_vax_data(filename):
     df = raw_df.loc[raw_df['Geography Type'] == 'States/Local Areas']
     # Get the aggregate data for all types of vaccines
     df = df.loc[df['Vaccine'] == 'Seasonal Influenza']
+    # Fill in nans
+    df.fillna('0', inplace=True)
     # Get the data broken down by age
     df = df.loc[df['Dimension Type'] == 'Age']
-    # Only get the columns that we care about
-    fields = ['Geography', 'Season/Survey Year', 'Month', 'Dimension', 'Estimate (%)', '95% CI (%)', 'Sample Size']
-    final_df = df[fields]
+    # Except the flu data is not broken down by age. There are fields to break it down possibly in the future, but for
+    # now we will just look at all ages
+    df = df.loc[df['Dimension'] == '>=6 Months']
+    df['data'] = df['Estimate (%)'].apply(str) + '__' + df['95% CI (%)'] + '__' + df['Sample Size'].apply(str)
+    final_df = df.groupby(['Geography', 'Season/Survey Year']).agg({'data': 'max'}).reset_index()
+    final_df['Estimate (%)'] = final_df['data'].apply(lambda x: x.split('__')[0])
+    final_df['95% CI (%) Low'] = final_df['data'].apply(lambda x: x.split('__')[1].split(' to ')[0])
+    final_df['95% CI (%) High'] = final_df['data'].apply(lambda x: x.split('__')[1].split(' to ')[-1])
+    final_df['Sample Size'] = final_df['data'].apply(lambda x: x.split('__')[2])
+    fields = ['Geography', 'Season/Survey Year', 'Estimate (%)', '95% CI (%) Low', '95% CI (%) High', 'Sample Size']
+    final_df = final_df[fields]
     final_df.rename(columns={'Geography': 'REGION'}, inplace=True)
+    # Convert the data fields to numerical typing
+    final_df.replace('0', np.NaN, inplace=True)
+    final_df[['Estimate (%)', '95% CI (%) Low', '95% CI (%) High', 'Sample Size']] = \
+        final_df[['Estimate (%)', '95% CI (%) Low', '95% CI (%) High', 'Sample Size']].apply(lambda x: x.apply(float))
+    final_df['Sample Size'] = final_df['Sample Size'].apply(int)
     return final_df
 
 
@@ -63,8 +79,9 @@ def load_flu_test_data(filenames):
     df['TOTAL SPECIMENS'] = df['TOTAL SPECIMENS'].apply(int)
     df['PERCENT POSITIVE'] = df['PERCENT POSITIVE'].apply(float)
     df['TOTAL POSITIVE'] = (df['TOTAL SPECIMENS'] * df['PERCENT POSITIVE'] * 0.01).round().astype(int)
-    out_df = df.groupby(['REGION', 'Season/Survey Year', 'Month']).agg({'TOTAL SPECIMENS': 'sum',
-                                                                        'TOTAL POSITIVE': 'sum'}).reset_index()
+    assert isinstance(df.groupby(['REGION', 'Season/Survey Year']).agg, object)
+    out_df = df.groupby(['REGION', 'Season/Survey Year']).agg({'TOTAL SPECIMENS': 'sum',
+                                                               'TOTAL POSITIVE': 'sum'}).reset_index()
     return out_df
 
 
@@ -74,20 +91,21 @@ def load_ili_hospital_data(filename):
     df.replace('X', 0, inplace=True)
     df['ILITOTAL'] = df['ILITOTAL'].apply(int)
     df['TOTAL PATIENTS'] = df['TOTAL PATIENTS'].apply(int)
-    out_df = df.groupby(['REGION', 'Season/Survey Year', 'Month']).agg({'ILITOTAL': 'sum',
-                                                                        'TOTAL PATIENTS': 'sum'}).reset_index()
+    out_df = df.groupby(['REGION', 'Season/Survey Year']).agg({'ILITOTAL': 'sum',
+                                                               'TOTAL PATIENTS': 'sum'}).reset_index()
     return out_df
+
+
+def join_export_dfs(vax, flu, ili, outfile):
+    df = pd.merge(vax, flu, left_on=['REGION', 'Season/Survey Year'], right_on=['REGION', 'Season/Survey Year'])
+    df = pd.merge(df, ili, left_on=['REGION', 'Season/Survey Year'], right_on=['REGION', 'Season/Survey Year'])
+    df.to_csv(outfile, index=False)
 
 
 if __name__ == '__main__':
     vax_df = load_vax_data('data/Influenza_Vaccination_Coverage_for_All_Ages__6__Months_.csv')
-    print(vax_df.isnull().sum())
     flu_files = ['data/WHO_NREVSS_Combined_prior_to_2015_16.csv',
                  'data/WHO_NREVSS_Clinical_Labs.csv']
     flu_df = load_flu_test_data(flu_files)
-    ca_vax_data = vax_df.loc[vax_df['REGION'] == 'California']
-
     ili_df = load_ili_hospital_data('data/ILINet.csv')
-    ca_ili_data = ili_df.loc[ili_df['REGION'] == 'California']
-    plt.plot(ca_vax_data.loc[ca_vax_data['Dimension']=='>=6 Months', 'Estimate (%)'])
-    plt.show()
+    join_export_dfs(vax_df, flu_df, ili_df, 'data/data.csv')
