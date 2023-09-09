@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 
 
 # This script will have functions that generate the vaccine and flu metrics by state
@@ -10,12 +11,13 @@ def load_vax_data(filename):
     raw_df = pd.read_csv(filename)
     df = raw_df.loc[raw_df['Geography Type'] == 'States/Local Areas']
     # Get the aggregate data for all types of vaccines
-    df = df.loc[df['Vaccine'] == 'Any Influenza Vaccination, Seasonal or H1N1']
+    df = df.loc[df['Vaccine'] == 'Seasonal Influenza']
     # Get the data broken down by age
     df = df.loc[df['Dimension Type'] == 'Age']
     # Only get the columns that we care about
     fields = ['Geography', 'Season/Survey Year', 'Month', 'Dimension', 'Estimate (%)', '95% CI (%)', 'Sample Size']
     final_df = df[fields]
+    final_df.rename(columns={'Geography': 'REGION'}, inplace=True)
     return final_df
 
 
@@ -35,7 +37,7 @@ def convert_time_to_seasons(year_week_df):
     year_week_df.loc[year_week_df['Month'] >= 8, 'Season/Survey Year'] = season_start_df['Season/Survey Year']
 
     season_end_df = year_week_df.loc[year_week_df['Month'] < 8]
-    season_end_df['start year'] = season_end_df['YEAR'].apply(lambda x: x-1)
+    season_end_df['start year'] = season_end_df['YEAR'].apply(lambda x: x - 1)
     season_end_df['Season/Survey Year'] = season_end_df['start year'].astype(str) + '-' + \
                                           season_end_df['YEAR'].apply(lambda x: str(x)[-2:])
     year_week_df.loc[year_week_df['Month'] < 8, 'Season/Survey Year'] = season_end_df['Season/Survey Year']
@@ -60,9 +62,20 @@ def load_flu_test_data(filenames):
     df.replace('X', 0, inplace=True)
     df['TOTAL SPECIMENS'] = df['TOTAL SPECIMENS'].apply(int)
     df['PERCENT POSITIVE'] = df['PERCENT POSITIVE'].apply(float)
-    df['TOTAL POSITIVE'] = (df['TOTAL SPECIMENS']*df['PERCENT POSITIVE']*0.01).round().astype(int)
+    df['TOTAL POSITIVE'] = (df['TOTAL SPECIMENS'] * df['PERCENT POSITIVE'] * 0.01).round().astype(int)
     out_df = df.groupby(['REGION', 'Season/Survey Year', 'Month']).agg({'TOTAL SPECIMENS': 'sum',
                                                                         'TOTAL POSITIVE': 'sum'}).reset_index()
+    return out_df
+
+
+def load_ili_hospital_data(filename):
+    df = pd.read_csv(filename, header=1)
+    df[['Season/Survey Year', 'Month']] = convert_time_to_seasons(df[['YEAR', 'WEEK']])
+    df.replace('X', 0, inplace=True)
+    df['ILITOTAL'] = df['ILITOTAL'].apply(int)
+    df['TOTAL PATIENTS'] = df['TOTAL PATIENTS'].apply(int)
+    out_df = df.groupby(['REGION', 'Season/Survey Year', 'Month']).agg({'ILITOTAL': 'sum',
+                                                                        'TOTAL PATIENTS': 'sum'}).reset_index()
     return out_df
 
 
@@ -72,4 +85,9 @@ if __name__ == '__main__':
     flu_files = ['data/WHO_NREVSS_Combined_prior_to_2015_16.csv',
                  'data/WHO_NREVSS_Clinical_Labs.csv']
     flu_df = load_flu_test_data(flu_files)
-    print(flu_df.isnull().sum())
+    ca_vax_data = vax_df.loc[vax_df['REGION'] == 'California']
+
+    ili_df = load_ili_hospital_data('data/ILINet.csv')
+    ca_ili_data = ili_df.loc[ili_df['REGION'] == 'California']
+    plt.plot(ca_vax_data.loc[ca_vax_data['Dimension']=='>=6 Months', 'Estimate (%)'])
+    plt.show()
