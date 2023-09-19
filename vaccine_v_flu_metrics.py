@@ -34,6 +34,9 @@ def load_vax_data(filename):
     final_df[['Estimate (%)', '95% CI (%) Low', '95% CI (%) High', 'Sample Size']] = \
         final_df[['Estimate (%)', '95% CI (%) Low', '95% CI (%) High', 'Sample Size']].apply(lambda x: x.apply(float))
     final_df['Sample Size'] = final_df['Sample Size'].apply(int)
+    final_df['high/low bin'] = np.nan
+    final_df.loc[final_df['Estimate (%)']<20, 'high/low bin'] = 'Low Coverage'
+    final_df.loc[final_df['Estimate (%)']>=20, 'high/low bin'] = 'High Coverage'
     return final_df
 
 
@@ -82,6 +85,7 @@ def load_flu_test_data(filenames):
     assert isinstance(df.groupby(['REGION', 'Season/Survey Year']).agg, object)
     out_df = df.groupby(['REGION', 'Season/Survey Year']).agg({'TOTAL SPECIMENS': 'sum',
                                                                'TOTAL POSITIVE': 'sum'}).reset_index()
+    out_df['PERCENT POSITIVE'] = out_df['TOTAL POSITIVE'] / out_df['TOTAL SPECIMENS']
     return out_df
 
 
@@ -93,6 +97,7 @@ def load_ili_hospital_data(filename):
     df['TOTAL PATIENTS'] = df['TOTAL PATIENTS'].apply(int)
     out_df = df.groupby(['REGION', 'Season/Survey Year']).agg({'ILITOTAL': 'sum',
                                                                'TOTAL PATIENTS': 'sum'}).reset_index()
+    out_df['ILI%'] = out_df['ILITOTAL']/out_df['TOTAL PATIENTS']
     return out_df
 
 
